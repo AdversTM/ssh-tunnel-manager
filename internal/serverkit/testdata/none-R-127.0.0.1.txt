@@ -1,0 +1,8 @@
+== instructions
+Mode: none - nothing is changed on vps.example.com.
+
+The server will listen on 127.0.0.1:8080 and forward connections to 127.0.0.1:3000 as reached from this PC.
+
+Requirements: user "tunnel" can log in with the configured key authentication and AllowTcpForwarding is not disabled for it.
+== script 
+== caddyfile

@@ -1,0 +1,149 @@
+== instructions
+Mode: sshd - run the script once on vps.example.com as root. It is safe to run again.
+
+1. Copy stm-setup-dev-web.sh to the server, e.g.:
+   scp stm-setup-dev-web.sh <admin>@vps.example.com:
+2. Run it:  sudo bash stm-setup-dev-web.sh
+   It creates user "tunnel" (no shell), allows only PermitListen 127.0.0.1:8080 for it in /etc/ssh/sshd_config.d/ssh-tunnel-manager-tunnel.conf, sets ClientAliveInterval 15 / ClientAliveCountMax 3 so a dead session frees the port within ~45 s, checks sshd -t and reloads sshd.
+   Your public key is added to ~tunnel/.ssh/authorized_keys restricted to permitlisten="127.0.0.1:8080".
+
+Check after connecting the tunnel:  sudo ss -ltnp | grep ':8080 '
+== script stm-setup-dev-web.sh
+#!/usr/bin/env bash
+# SSH Tunnel Manager - server setup for tunnel "Dev Web" (mode sshd).
+# Run on vps.example.com as root: sudo bash stm-setup-dev-web.sh
+# Safe to run again; entries are added once. Debian/Ubuntu/RHEL-like systems with OpenSSH >= 7.8.
+set -euo pipefail
+
+TUNNEL_USER='tunnel'
+KEYWORD='PermitListen'
+SPEC='127.0.0.1:8080'
+AK_OPT='permitlisten="127.0.0.1:8080"'
+PUBKEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBkYk4V5vQ0n3cX2l9hHq2l0bJm2yJ8Qm8r7tHqf1c2d'
+DOMAIN=''
+UPSTREAM=''
+
+MAIN=/etc/ssh/sshd_config
+CONF="/etc/ssh/sshd_config.d/ssh-tunnel-manager-$TUNNEL_USER.conf"
+MARK=ssh-tunnel-manager
+
+die() { echo "error: $*" >&2; exit 1; }
+[ "$(id -u)" -eq 0 ] || die "run as root: sudo bash $0"
+[ "$TUNNEL_USER" != root ] || die "use a dedicated user for tunnels, not root"
+SSHD=$(command -v sshd || echo /usr/sbin/sshd)
+[ -x "$SSHD" ] || die "sshd not found"
+
+# 1. Dedicated user. '*' = no password but not locked, so key logins work; set one with passwd for password auth.
+if ! id "$TUNNEL_USER" >/dev/null 2>&1; then
+  useradd --create-home --shell "$(command -v nologin || echo /bin/false)" "$TUNNEL_USER"
+  usermod -p '*' "$TUNNEL_USER"
+  echo "created user $TUNNEL_USER"
+fi
+
+# 2. sshd drop-in: one Match block per user; allowed forwards accumulate across tunnels.
+if ! grep -Eqi '^[[:space:]]*Include[[:space:]]+(/etc/ssh/)?sshd_config\.d/\*\.conf' "$MAIN"; then
+  cp -p "$MAIN" "$MAIN.$MARK.bak"
+  sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' "$MAIN"
+  echo "added Include to $MAIN (backup: $MAIN.$MARK.bak)"
+fi
+mkdir -p /etc/ssh/sshd_config.d
+
+current() {
+  [ -f "$CONF" ] || return 0
+  awk -v k="$1" 'tolower($1) == tolower(k) { for (i = 2; i <= NF; i++) if ($i != "none") print $i }' "$CONF"
+}
+merge() { printf '%s\n' "$@" | awk 'NF && !seen[$0]++' | sort | tr '\n' ' ' | sed 's/ $//'; }
+
+listen=$(current PermitListen)
+open=$(current PermitOpen)
+if [ "$KEYWORD" = PermitListen ]; then listen=$(merge "$listen" "$SPEC"); else open=$(merge "$open" "$SPEC"); fi
+listen=$(merge "$listen"); open=$(merge "$open")
+[ -n "$listen" ] || listen=none
+[ -n "$open" ] || open=none
+
+forwarding=yes
+if [ "$open" = none ]; then forwarding=remote; fi
+if [ "$listen" = none ]; then forwarding=local; fi
+gateway=no
+for l in $listen; do
+  case "$l" in none | 127.* | localhost:* | \[::1\]:*) ;; *) gateway=clientspecified ;; esac
+done
+
+tmp=$(mktemp)
+cat >"$tmp" <<EOF
+# Managed by SSH Tunnel Manager setup scripts: forwards allowed for user $TUNNEL_USER.
+Match User $TUNNEL_USER
+    AllowTcpForwarding $forwarding
+    PermitListen $listen
+    PermitOpen $open
+    GatewayPorts $gateway
+    X11Forwarding no
+    AllowAgentForwarding no
+    PermitTTY no
+    ClientAliveInterval 15
+    ClientAliveCountMax 3
+EOF
+backup=""
+if [ -f "$CONF" ]; then backup=$(mktemp); cp -p "$CONF" "$backup"; fi
+install -m 644 "$tmp" "$CONF"
+rm -f "$tmp"
+if ! "$SSHD" -t; then
+  if [ -n "$backup" ]; then mv "$backup" "$CONF"; else rm -f "$CONF"; fi
+  die "sshd -t rejected the new config; previous state restored"
+fi
+[ -z "$backup" ] || rm -f "$backup"
+
+# 3. authorized_keys entry limited to this tunnel's forward.
+if [ -n "$PUBKEY" ]; then
+  home=$(getent passwd "$TUNNEL_USER" | cut -d: -f6)
+  group=$(id -gn "$TUNNEL_USER")
+  install -d -m 700 -o "$TUNNEL_USER" -g "$group" "$home/.ssh"
+  ak="$home/.ssh/authorized_keys"
+  touch "$ak"
+  body=$(printf '%s\n' "$PUBKEY" | awk '{ print $2 }')
+  if ! grep -qF "$body" "$ak"; then
+    printf 'restrict,port-forwarding,%s %s %s\n' "$AK_OPT" "$PUBKEY" "$MARK" >>"$ak"
+  elif ! grep -F "$body" "$ak" | grep -q " $MARK\$"; then
+    die "this key is already in $ak without the $MARK marker; use a separate key for tunnels"
+  elif ! grep -F "$body" "$ak" | grep -qF "$AK_OPT"; then
+    awk -v b="$body" -v o="$AK_OPT" 'index($0, b) { $0 = o "," $0 } { print }' "$ak" >"$ak.$MARK.tmp"
+    cat "$ak.$MARK.tmp" >"$ak"
+    rm -f "$ak.$MARK.tmp"
+  fi
+  chown "$TUNNEL_USER:$group" "$ak"
+  chmod 600 "$ak"
+fi
+
+# 4. Caddy site block (sshd+caddy mode only).
+if [ -n "$DOMAIN" ]; then
+  CADDYFILE=/etc/caddy/Caddyfile
+  if command -v caddy >/dev/null 2>&1 && [ -f "$CADDYFILE" ]; then
+    if grep -qxF "$DOMAIN {" "$CADDYFILE"; then
+      echo "Caddy: $DOMAIN already configured, left unchanged"
+    else
+      cp -p "$CADDYFILE" "$CADDYFILE.$MARK.bak"
+      printf '\n%s {\n\treverse_proxy %s\n}\n' "$DOMAIN" "$UPSTREAM" >>"$CADDYFILE"
+      if ! caddy validate --config "$CADDYFILE" --adapter caddyfile; then
+        mv "$CADDYFILE.$MARK.bak" "$CADDYFILE"
+        die "caddy validate failed; Caddyfile restored"
+      fi
+      systemctl reload caddy || echo "reload Caddy to apply: systemctl reload caddy"
+    fi
+  else
+    echo "Caddy not found; add this site block to your Caddyfile:"
+    printf '%s {\n\treverse_proxy %s\n}\n' "$DOMAIN" "$UPSTREAM"
+  fi
+fi
+
+# 5. Apply.
+if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ssh; then
+  systemctl reload ssh
+elif command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet sshd; then
+  systemctl reload sshd
+elif [ -f /run/sshd.pid ]; then
+  kill -HUP "$(cat /run/sshd.pid)"
+else
+  echo "reload sshd to apply: systemctl reload ssh"
+fi
+echo "done: $TUNNEL_USER may forward $SPEC"
+== caddyfile
