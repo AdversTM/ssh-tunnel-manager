@@ -1,0 +1,10 @@
+name: stm-test
+
+services:
+  sshd:
+    build: .
+    container_name: stm-sshd
+    ports:
+      - "127.0.0.1:2222:22"
+    volumes:
+      - ../keys:/keys:ro
