@@ -1,0 +1,582 @@
+/* ---------------------------------------------------------------------------
+   SSH Tunnel Manager — design tokens + shared primitives
+   Calm Windows-11-style desktop utility. Every colour / size below is a token;
+   components reference tokens only.
+   --------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: light dark;
+
+  /* type */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+  --fs-0: 11px;
+  --fs-1: 12px;
+  --fs-2: 13px;
+  --fs-3: 14px;
+  --fs-4: 16px;
+  --fs-5: 20px;
+  --lh: 1.45;
+
+  /* spacing (4px grid) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+
+  /* shape */
+  --r-1: 4px;
+  --r-2: 6px;
+  --r-3: 8px;
+
+  /* motion */
+  --t-fast: 120ms;
+  --t-med: 200ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* control metrics */
+  --ctl-h: 30px;
+  --ctl-h-sm: 26px;
+
+  /* light palette */
+  --bg: #f3f3f3;
+  --surface: #ffffff;
+  --surface-2: #f7f7f7;
+  --surface-3: #ededed;
+  --text: #1b1b1b;
+  --text-2: #5d5d5d;
+  --text-3: #8a8a8a;
+  --line: rgba(0, 0, 0, 0.09);
+  --line-strong: rgba(0, 0, 0, 0.2);
+  --accent: #005fb8;
+  --accent-hover: #0a6bc6;
+  --accent-active: #00539f;
+  --on-accent: #ffffff;
+  --accent-wash: rgba(0, 95, 184, 0.1);
+
+  --ok: #0f7b0f;
+  --ok-wash: rgba(15, 123, 15, 0.12);
+  --warn: #8f5400;
+  --warn-wash: rgba(201, 118, 0, 0.14);
+  --err: #c42b1c;
+  --err-hover: #b3261a;
+  --err-wash: rgba(196, 43, 28, 0.1);
+  --off: #6e6e6e;
+  --off-wash: rgba(0, 0, 0, 0.07);
+
+  --shadow-dialog: 0 12px 40px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  --scrim: rgba(0, 0, 0, 0.32);
+  --log-bg: #fbfbfb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #202020;
+    --surface: #2b2b2b;
+    --surface-2: #323232;
+    --surface-3: #3a3a3a;
+    --text: #f2f2f2;
+    --text-2: #c2c2c2;
+    --text-3: #8f8f8f;
+    --line: rgba(255, 255, 255, 0.09);
+    --line-strong: rgba(255, 255, 255, 0.24);
+    --accent: #60cdff;
+    --accent-hover: #7ad6ff;
+    --accent-active: #4cc2ff;
+    --on-accent: #00273d;
+    --accent-wash: rgba(96, 205, 255, 0.14);
+
+    --ok: #6ccb5f;
+    --ok-wash: rgba(108, 203, 95, 0.16);
+    --warn: #f2b84b;
+    --warn-wash: rgba(242, 184, 75, 0.16);
+    --err: #ff99a4;
+    --err-hover: #ffadb5;
+    --err-wash: rgba(255, 153, 164, 0.14);
+    --off: #9c9c9c;
+    --off-wash: rgba(255, 255, 255, 0.08);
+
+    --shadow-dialog: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    --scrim: rgba(0, 0, 0, 0.5);
+    --log-bg: #1b1b1b;
+  }
+}
+
+/* ---------- base ---------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--fs-2);
+  line-height: var(--lh);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+#app {
+  height: 100%;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input,
+textarea {
+  user-select: text;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--text-2);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  height: var(--ctl-h);
+  padding: 0 var(--s-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-2);
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+
+.btn:hover {
+  background: var(--surface-2);
+}
+
+.btn:active {
+  background: var(--surface-3);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn-primary:active {
+  background: var(--accent-active);
+}
+
+.btn-danger {
+  background: var(--err);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  .btn-danger {
+    color: #2b0a0a;
+  }
+}
+
+.btn-danger:hover {
+  background: var(--err-hover);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-2);
+}
+
+.btn-ghost:hover {
+  background: var(--off-wash);
+  color: var(--text);
+}
+
+.btn-ghost.danger:hover {
+  background: var(--err-wash);
+  color: var(--err);
+}
+
+.btn-sm {
+  height: var(--ctl-h-sm);
+  padding: 0 var(--s-2);
+  font-size: var(--fs-1);
+}
+
+.btn-icon {
+  width: var(--ctl-h);
+  padding: 0;
+}
+
+.btn-icon.btn-sm {
+  width: var(--ctl-h-sm);
+}
+
+.btn svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.btn-sm svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---------- form controls ---------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+
+.label {
+  font-size: var(--fs-1);
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.input,
+.select {
+  height: var(--ctl-h);
+  width: 100%;
+  min-width: 0;
+  padding: 0 var(--s-2);
+  border: 1px solid var(--line-strong);
+  border-bottom-color: var(--text-3);
+  border-radius: var(--r-1);
+  background: var(--surface);
+  color: var(--text);
+  transition: border-color var(--t-fast) var(--ease);
+}
+
+.input::placeholder {
+  color: var(--text-3);
+}
+
+.input:hover,
+.select:hover {
+  background: var(--surface-2);
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--line-strong);
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 0;
+}
+
+.input[aria-invalid="true"],
+.select[aria-invalid="true"] {
+  border-bottom-color: var(--err);
+}
+
+.input:disabled,
+.select:disabled {
+  opacity: 0.55;
+}
+
+.input.mono {
+  font-size: var(--fs-1);
+}
+
+.input-row {
+  display: flex;
+  gap: var(--s-2);
+}
+
+.input-row .input {
+  flex: 1;
+}
+
+.hint {
+  font-size: var(--fs-0);
+  color: var(--text-3);
+}
+
+.field-error {
+  font-size: var(--fs-0);
+  color: var(--err);
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.check input:disabled,
+.check input:disabled + span {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* toggle switch — Windows 11 geometry (40×20, knob 12px) */
+.switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 40px;
+  height: 20px;
+  margin: 0;
+  border: 1px solid var(--text-2);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  flex: none;
+  transition:
+    background var(--t-med) var(--ease),
+    border-color var(--t-med) var(--ease);
+}
+
+.switch::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-2);
+  transition:
+    transform var(--t-med) var(--ease),
+    background var(--t-med) var(--ease);
+}
+
+.switch:hover::before {
+  transform: scale(1.15);
+}
+
+.switch:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.switch:checked::before {
+  background: var(--on-accent);
+  transform: translateX(20px);
+}
+
+.switch:checked:hover::before {
+  transform: translateX(20px) scale(1.15);
+}
+
+.switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---------- banners ---------- */
+
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-2);
+  border: 1px solid var(--line);
+  font-size: var(--fs-2);
+}
+
+.banner-error {
+  background: var(--err-wash);
+  border-color: transparent;
+}
+
+.banner-error .banner-icon {
+  color: var(--err);
+}
+
+.banner-warn {
+  background: var(--warn-wash);
+  border-color: transparent;
+}
+
+.banner-warn .banner-icon {
+  color: var(--warn);
+}
+
+.banner-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+}
+
+.banner-body {
+  flex: 1;
+  min-width: 0;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+
+.banner-title {
+  font-weight: 600;
+}
+
+/* ---------- modal shell ---------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4);
+  background: var(--scrim);
+  z-index: 50;
+  animation: fade-in var(--t-med) var(--ease);
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, var(--modal-w, 520px));
+  max-height: calc(100vh - 2 * var(--s-4));
+  background: var(--surface);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-dialog);
+  outline: none;
+  animation: rise-in var(--t-med) var(--ease);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5) 0;
+}
+
+.modal-title {
+  flex: 1;
+  font-size: var(--fs-4);
+  font-weight: 600;
+}
+
+.modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--s-4) var(--s-5);
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-5) var(--s-4);
+  border-top: 1px solid var(--line);
+}
+
+.modal-footer .spacer {
+  flex: 1;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
