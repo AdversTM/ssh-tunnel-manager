@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version from tag
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "tag must look like v1.2.3, got ${{ github.ref_name }}" }
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Stamp version into build assets
+        run: |
+          $info = 'build/windows/info.json'
+          (Get-Content $info -Raw) -replace '("(?:file_version|product_version|FileVersion|ProductVersion)":\s*")[^"]*"', "`${1}$env:VERSION`"" |
+            Set-Content $info -NoNewline
+          $manifest = 'build/windows/wails.exe.manifest'
+          (Get-Content $manifest -Raw) -replace '(name="com\.sshtunnelmanager\.app" version=")[^"]*"', "`${1}$env:VERSION.0`"" |
+            Set-Content $manifest -NoNewline
+          $config = 'build/config.yml'
+          (Get-Content $config -Raw) -replace '(?m)^(\s+version:\s*")[^"]*"', "`${1}$env:VERSION`"" |
+            Set-Content $config -NoNewline
+          Select-String -Path $info, $manifest, $config -Pattern ([regex]::Escape($env:VERSION))
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: frontend
+        run: bun run build
+
+      - name: Go tests
+        run: go test ./...
+
+      - name: Install Wails CLI and NSIS
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          choco install nsis --no-progress -y
+          "${env:ProgramFiles(x86)}\NSIS" >> $env:GITHUB_PATH
+
+      - name: Build portable exe and installer
+        run: wails3 task package VERSION=${{ env.VERSION }}
+
+      - name: Installer smoke test
+        run: python test/qa_installer.py
+
+      - name: Collect release assets
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item bin/ssh-tunnel-manager.exe "dist/ssh-tunnel-manager-$env:VERSION-portable.exe"
+          Copy-Item "bin/ssh-tunnel-manager-$env:VERSION-setup.exe" dist/
+          Get-ChildItem dist -File | Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
+            Set-Content dist/SHA256SUMS.txt
+          Get-Content dist/SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            ### Downloads
+
+            | File | |
+            |---|---|
+            | `ssh-tunnel-manager-${{ env.VERSION }}-setup.exe` | Installer: per-user, no admin rights, Start menu entry, uninstaller |
+            | `ssh-tunnel-manager-${{ env.VERSION }}-portable.exe` | Portable: a single exe, run it from anywhere |
+            | `SHA256SUMS.txt` | Checksums |
+
+            Requires Windows 10/11 (x64) with the OpenSSH client (built in) or PuTTY. The binaries are not code-signed yet, so SmartScreen may ask you to confirm the first start.
