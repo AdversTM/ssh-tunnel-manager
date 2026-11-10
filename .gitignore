@@ -1,0 +1,35 @@
+# Build output
+bin/
+*.exe
+*.syso
+frontend/dist/
+.task/
+node_modules/
+
+# Test keys are generated locally (test/sshd/gen-keys.ps1), never committed
+test/keys/
+
+# Python
+__pycache__/
+*.pyc
+
+# Local research prototypes
+spikes/
+docs/spikes.md
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store
+
+# AI/agent tooling
+.omo/
+.opencode/
+.serena/
+.codegraph/
+.claude/
+.cursor/
+AGENTS.md
+CLAUDE.md
