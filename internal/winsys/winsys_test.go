@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 func TestCommandQuoting(t *testing.T) {
@@ -98,6 +100,28 @@ func TestNetworkFingerprintThisMachine(t *testing.T) {
 	}
 	if fp == "" || !strings.Contains(fp, "gw=") {
 		t.Fatalf("expected at least one adapter with a gateway, got %q", fp)
+	}
+}
+
+func TestRoutesOutSkipsTransitionTunnels(t *testing.T) {
+	gw := &windows.IpAdapterGatewayAddress{}
+	cases := []struct {
+		name string
+		a    windows.IpAdapterAddresses
+		want bool
+	}{
+		{"ethernet with gateway", windows.IpAdapterAddresses{IfType: windows.IF_TYPE_ETHERNET_CSMACD, OperStatus: windows.IfOperStatusUp, FirstGatewayAddress: gw}, true},
+		{"wifi with gateway", windows.IpAdapterAddresses{IfType: windows.IF_TYPE_IEEE80211, OperStatus: windows.IfOperStatusUp, FirstGatewayAddress: gw}, true},
+		{"windows VPN (PPP)", windows.IpAdapterAddresses{IfType: windows.IF_TYPE_PPP, OperStatus: windows.IfOperStatusUp, FirstGatewayAddress: gw}, true},
+		{"WireGuard (IF_TYPE_PROP_VIRTUAL, 53)", windows.IpAdapterAddresses{IfType: 53, OperStatus: windows.IfOperStatusUp, FirstGatewayAddress: gw}, true},
+		{"Teredo tunnel", windows.IpAdapterAddresses{IfType: windows.IF_TYPE_TUNNEL, OperStatus: windows.IfOperStatusUp, FirstGatewayAddress: gw}, false},
+		{"no gateway", windows.IpAdapterAddresses{IfType: windows.IF_TYPE_ETHERNET_CSMACD, OperStatus: windows.IfOperStatusUp}, false},
+		{"down", windows.IpAdapterAddresses{IfType: windows.IF_TYPE_ETHERNET_CSMACD, OperStatus: windows.IfOperStatusDown, FirstGatewayAddress: gw}, false},
+	}
+	for _, c := range cases {
+		if got := routesOut(&c.a); got != c.want {
+			t.Errorf("%s: routesOut=%v want %v", c.name, got, c.want)
+		}
 	}
 }
 

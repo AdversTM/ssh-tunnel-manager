@@ -12,9 +12,17 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// NetworkFingerprint describes the adapters that can reach other networks:
-// operational adapters with a default gateway, with their addresses. Virtual
-// switches (Docker, Hyper-V, WSL) have no gateway and do not affect it.
+// routesOut reports whether an adapter counts towards the network fingerprint:
+// operational, with a default gateway, and not a Windows IPv6 transition tunnel
+// (Teredo, 6to4, ISATAP, IP-HTTPS). Teredo in particular qualifies and goes
+// dormant every few minutes on its own, which would restart tunnels needlessly.
+func routesOut(a *windows.IpAdapterAddresses) bool {
+	return a.OperStatus == windows.IfOperStatusUp && a.FirstGatewayAddress != nil && a.IfType != windows.IF_TYPE_TUNNEL
+}
+
+// NetworkFingerprint describes the adapters that can reach other networks
+// (see routesOut), with their addresses. Virtual switches (Docker, Hyper-V,
+// WSL) have no gateway and do not affect it.
 func NetworkFingerprint() (string, error) {
 	size := uint32(15 << 10)
 	var buf []byte
@@ -30,7 +38,7 @@ func NetworkFingerprint() (string, error) {
 		}
 		var parts []string
 		for a := (*windows.IpAdapterAddresses)(unsafe.Pointer(&buf[0])); a != nil; a = a.Next {
-			if a.OperStatus != windows.IfOperStatusUp || a.FirstGatewayAddress == nil {
+			if !routesOut(a) {
 				continue
 			}
 			var addrs []string
